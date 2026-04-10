@@ -13,7 +13,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 # 从重构后的模块导入
-from config import SILICONFLOW_API_KEY
+from config import has_remote_llm_config
 from core.generator import query_answer
 from core.vector_store import vector_store
 from features.web_search import check_serpapi_key
@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="本地RAG API服务",
-    description="提供基于本地大模型和SERPAPI的文档问答API接口",
+    description="提供基于远程 API / 本地模型和联网搜索的文档问答 API 接口",
     version="2.0.0",
     lifespan=lifespan
 )
@@ -58,7 +58,7 @@ app.add_middleware(
 class QuestionRequest(BaseModel):
     question: str
     enable_web_search: bool = False
-    model_choice: str = "siliconflow"
+    model_choice: str = "api"
 
 
 class AnswerResponse(BaseModel):
@@ -131,7 +131,7 @@ async def ask_question(req: QuestionRequest):
 async def check_status():
     return {
         "status": "healthy",
-        "siliconflow_configured": bool(SILICONFLOW_API_KEY and not SILICONFLOW_API_KEY.startswith("Your")),
+        "api_configured": has_remote_llm_config(),
         "serpapi_configured": check_serpapi_key(),
         "vector_store_ready": vector_store.is_ready,
         "total_chunks": vector_store.total_chunks,

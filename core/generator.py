@@ -1,18 +1,18 @@
 """
-LLM 调用 —— 大模型回答生成（Ollama + SiliconFlow）
+LLM 调用 —— 大模型回答生成（Ollama + Remote API）
 
 学习要点：
 - Prompt Engineering：如何构建高质量的提示词模板
 - 流式输出 vs 非流式输出的区别
-- 多模型适配：本地 Ollama 和云端 SiliconFlow API 的对接
+- 多模型适配：本地 Ollama 和云端通用 API 的对接
 """
 
 import json
 import logging
 import requests
 from config import (
-    SILICONFLOW_API_KEY, SILICONFLOW_API_URL,
-    SILICONFLOW_MODEL_NAME, OLLAMA_MODEL_NAME
+    LLM_API_KEY, LLM_API_URL, LLM_MODEL_NAME,
+    OLLAMA_MODEL_NAME, LLM_PROVIDER_NAME
 )
 from utils.network import get_session
 from core.retriever import recursive_retrieval
@@ -21,27 +21,30 @@ from features.conflict_detector import detect_conflicts, evaluate_source_credibi
 from features.thinking_chain import process_thinking_content
 
 
-def call_siliconflow_api(prompt, temperature=0.7, max_tokens=1024):
-    """调用 SiliconFlow 云端 API 获取回答"""
-    if not SILICONFLOW_API_KEY:
-        logging.error("未设置 SILICONFLOW_API_KEY")
-        return "错误：未配置 SiliconFlow API 密钥。"
+def is_remote_api_choice(model_choice):
+    return model_choice == "api"
+
+
+def call_remote_llm_api(prompt, temperature=0.7, max_tokens=1024):
+    """调用远程 OpenAI 兼容 API 获取回答"""
+    if not LLM_API_KEY:
+        logging.error("未设置 LLM_API_KEY")
+        return "错误：未配置远程 LLM API 密钥。"
 
     try:
         payload = {
-            "model": SILICONFLOW_MODEL_NAME,
+            "model": LLM_MODEL_NAME,
             "messages": [{"role": "user", "content": prompt}],
-            "stream": False, "max_tokens": max_tokens,
-            "temperature": temperature, "top_p": 0.7, "top_k": 50,
-            "frequency_penalty": 0.5, "n": 1,
-            "response_format": {"type": "text"}
+            "stream": False,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
         }
         headers = {
-            "Authorization": f"Bearer {SILICONFLOW_API_KEY.strip()}",
+            "Authorization": f"Bearer {LLM_API_KEY.strip()}",
             "Content-Type": "application/json; charset=utf-8"
         }
         json_payload = json.dumps(payload, ensure_ascii=False).encode('utf-8')
-        response = requests.post(SILICONFLOW_API_URL, data=json_payload, headers=headers, timeout=180)
+        response = requests.post(LLM_API_URL, data=json_payload, headers=headers, timeout=180)
         response.raise_for_status()
         result = response.json()
 
@@ -55,17 +58,16 @@ def call_siliconflow_api(prompt, temperature=0.7, max_tokens=1024):
         return "API返回结果格式异常"
 
     except requests.exceptions.RequestException as e:
-        logging.error(f"调用SiliconFlow API时出错: {str(e)}")
+        logging.error(f"调用远程 LLM API 时出错: {str(e)}")
         return f"调用API时出错: {str(e)}"
     except Exception as e:
-        logging.error(f"SiliconFlow API 未知错误: {str(e)}")
+        logging.error(f"{LLM_PROVIDER_NAME} API 未知错误: {str(e)}")
         return f"发生未知错误: {str(e)}"
 
-
-def call_llm_simple(prompt, model_choice="siliconflow"):
+def call_llm_simple(prompt, model_choice="api"):
     """简单的 LLM 调用（用于递归检索中的查询改写判断）"""
-    if model_choice == "siliconflow":
-        result = call_siliconflow_api(prompt)
+    if is_remote_api_choice(model_choice):
+        result = call_remote_llm_api(prompt)
         result = result.strip() if isinstance(result, str) else result[0].strip()
         if "<think>" in result:
             result = result.split("<think>")[0].strip()
@@ -134,7 +136,7 @@ def _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search):
     return "\n\n".join(context_parts), sources_for_conflict
 
 
-def query_answer(question, enable_web_search=False, model_choice="siliconflow", progress=None):
+def query_answer(question, enable_web_search=False, model_choice="api", progress=None):
     """
     问答处理主流程（非流式）
 
@@ -162,8 +164,8 @@ def query_answer(question, enable_web_search=False, model_choice="siliconflow", 
         if progress:
             progress(0.8, desc="生成回答...")
 
-        if model_choice == "siliconflow":
-            result = call_siliconflow_api(prompt, temperature=0.7, max_tokens=1536)
+        if is_remote_api_choice(model_choice):
+            result = call_remote_llm_api(prompt, temperature=0.7, max_tokens=1536)
         else:
             response = get_session().post(
                 "http://localhost:11434/api/generate",
@@ -181,7 +183,7 @@ def query_answer(question, enable_web_search=False, model_choice="siliconflow", 
         return f"系统错误: {str(e)}"
 
 
-def stream_answer(question, enable_web_search=False, model_choice="siliconflow", progress=None):
+def stream_answer(question, enable_web_search=False, model_choice="api", progress=None):
     """问答处理主流程（流式，用于 Gradio generator 模式）"""
     try:
         knowledge_base_exists = vector_store.is_ready
@@ -203,8 +205,8 @@ def stream_answer(question, enable_web_search=False, model_choice="siliconflow",
         prompt = _build_prompt(question, context, enable_web_search,
                                knowledge_base_exists, time_sensitive, conflict_detected)
 
-        if model_choice == "siliconflow":
-            full_answer = call_siliconflow_api(prompt, temperature=0.7, max_tokens=1536)
+        if is_remote_api_choice(model_choice):
+            full_answer = call_remote_llm_api(prompt, temperature=0.7, max_tokens=1536)
             yield process_thinking_content(full_answer), "完成!"
         else:
             response = get_session().post(

@@ -6,7 +6,7 @@
 <img src="https://img.shields.io/badge/RAG-Document%20%2B%20网络%20(可选)-orange" alt="RAG类型">
 <img src="https://img.shields.io/badge/UI-Gradio-blueviolet" alt="界面">
 <img src="https://img.shields.io/badge/VectorStore-FAISS-yellow" alt="向量存储">
-<img src="https://img.shields.io/badge/LLM-Ollama%20%7C%20SiliconFlow-lightgrey" alt="LLM支持">
+<img src="https://img.shields.io/badge/LLM-Ollama%20%7C%20Remote%20API-lightgrey" alt="LLM支持">
 </p>
 </div>
 
@@ -17,15 +17,15 @@
 *   **拆解RAG黑盒**：亲手实现从文档加载、文本切分、向量化、检索到生成的完整链路
 *   **掌握关键技术选型**：体验FAISS向量检索与BM25关键词检索的混合策略
 *   **实践性能优化技巧**：通过交叉编码器重排序、递归检索等高级功能，学习提升RAG系统准确性
-*   **构建多模型适配能力**：集成本地Ollama与云端SiliconFlow API，掌握不同LLM引擎的对接策略
+*   **构建多模型适配能力**：集成本地Ollama与云端通用 API，掌握不同LLM引擎的对接策略
 
 ## 🌟 核心功能
 
 *   📁 **文档处理**：支持上传并处理多种类型的文档（.pdf, .txt, .docx, .md, .html, .csv, .xls, .xlsx），自动分割和向量化
 *   🔍 **混合检索**：FAISS语义检索 + BM25关键词检索，提高检索召回率和准确性
 *   🔄 **结果重排序**：支持交叉编码器（CrossEncoder）和LLM对检索结果进行重排序
-*   🌐 **联网搜索增强 (可选)**：通过SerpAPI获取实时网络信息（需配置API密钥）
-*   🗣️ **本地/云端**：可选择使用本地Ollama大模型或云端SiliconFlow API进行推理
+*   🌐 **联网搜索增强 (可选)**：通过联网搜索 API 获取实时网络信息（需配置 API 密钥）
+*   🗣️ **本地/云端**：可选择使用本地Ollama大模型或云端通用 API 进行推理
 *   🤖 **智能回退**：启动时自动检测可用LLM后端，优先使用已配置的服务
 *   🖥️ **用户友好界面**：基于Gradio构建交互式Web界面
 *   📊 **分块可视化**：在UI上展示文档分块情况，帮助理解数据处理过程
@@ -50,7 +50,7 @@
 │   └── generator.py          # 8️⃣ 生成回答 — Prompt构建 + LLM调用
 │
 ├── features/                 # ✨ 扩展功能
-│   ├── web_search.py         # 联网搜索（SerpAPI）
+│   ├── web_search.py         # 联网搜索
 │   ├── conflict_detector.py  # 矛盾检测
 │   └── thinking_chain.py     # 思维链处理（DeepSeek-R1）
 │
@@ -125,7 +125,7 @@ graph TD
 
     # 编辑 .env 填入你的 API Key
     # 至少配置以下其中一项：
-    # - SILICONFLOW_API_KEY: 云端大模型（推荐，无需本地GPU）
+    # - LLM_API_KEY / LLM_API_URL / LLM_MODEL_NAME: 云端大模型
     # - 本地启动 Ollama 服务（需下载模型）
     ```
 
@@ -140,7 +140,7 @@ graph TD
 
 | 优先级 | 条件 | 行为 |
 |--------|------|------|
-| 1 | `.env` 中配置了 `SILICONFLOW_API_KEY` | 默认使用云端 SiliconFlow API |
+| 1 | `.env` 中完整配置了 `LLM_API_KEY`、`LLM_API_URL`、`LLM_MODEL_NAME` | 默认使用云端 Remote API |
 | 2 | 本地 Ollama 服务可用 | 默认使用本地 Ollama 模型 |
 | 3 | 都不可用 | 提示用户配置 |
 

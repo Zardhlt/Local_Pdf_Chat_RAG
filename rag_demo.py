@@ -22,8 +22,9 @@ from datetime import datetime
 
 # 导入配置
 from config import (
-    DEFAULT_MODEL_CHOICE, SILICONFLOW_API_KEY,
-    OLLAMA_MODEL_NAME, SILICONFLOW_MODEL_NAME
+    DEFAULT_MODEL_CHOICE, LLM_API_KEY, LLM_PROVIDER_NAME,
+    OLLAMA_MODEL_NAME, LLM_MODEL_NAME, EMBED_MODEL_NAME,
+    has_remote_llm_config
 )
 
 # 导入核心模块
@@ -32,7 +33,7 @@ from core.text_splitter import split_text
 from core.embeddings import encode_texts
 from core.vector_store import vector_store
 from core.bm25_index import bm25_manager
-from core.generator import query_answer, call_siliconflow_api
+from core.generator import query_answer, call_remote_llm_api
 
 # 导入工具
 from utils.network import is_port_available
@@ -163,12 +164,12 @@ def show_chunk_details(evt: gr.SelectData):
 def get_system_models_info():
     """返回系统使用的各种模型信息"""
     return {
-        "嵌入模型": "all-MiniLM-L6-v2",
+        "嵌入模型": EMBED_MODEL_NAME,
         "分块方法": "RecursiveCharacterTextSplitter (chunk_size=400, overlap=40)",
         "检索方法": "向量检索 + BM25混合检索 (α=0.7)",
         "重排序模型": "交叉编码器 (distiluse-base-multilingual-cased-v2)",
         "生成模型(Ollama)": OLLAMA_MODEL_NAME,
-        "生成模型(SiliconFlow)": SILICONFLOW_MODEL_NAME,
+        "生成模型(API)": LLM_MODEL_NAME,
         "分词工具": "jieba (中文分词)"
     }
 
@@ -240,12 +241,12 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
                         with gr.Row():
                             web_search_checkbox = gr.Checkbox(
                                 label="启用联网搜索", value=False,
-                                info="打开后将同时搜索网络内容（需配置SERPAPI_KEY）"
+                                info="打开后将同时搜索网络内容（需配置联网搜索 API Key）"
                             )
                             model_choice = gr.Dropdown(
-                                choices=["ollama", "siliconflow"],
+                                choices=["api", "ollama"],
                                 value=DEFAULT_MODEL_CHOICE,
-                                label="模型选择", info="选择使用本地模型或云端模型"
+                                label="模型选择", info="选择使用远程 API 或本地模型"
                             )
                         with gr.Row():
                             ask_btn = gr.Button("🔍 开始提问", variant="primary", scale=2)
@@ -338,7 +339,7 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
             <p>2. <strong>模型选择</strong>：当前使用 <strong>%s</strong></p>
         </div>""" % (
             "已启用" if enable_web_search else "未启用",
-            "Cloud DeepSeek-R1 模型" if model_choice_val == "siliconflow" else "本地 Ollama 模型"
+            f"{LLM_PROVIDER_NAME} API 模型" if model_choice_val == "api" else "本地 Ollama 模型"
         )
 
         if not question or question.strip() == "":
@@ -363,7 +364,7 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
             <p>2. <strong>模型选择</strong>：当前使用 <strong>%s</strong></p>
         </div>""" % (
             "已启用" if enable_web_search else "未启用",
-            "Cloud DeepSeek-R1 模型" if model_choice_val == "siliconflow" else "本地 Ollama 模型"
+            f"{LLM_PROVIDER_NAME} API 模型" if model_choice_val == "api" else "本地 Ollama 模型"
         )
 
     def get_system_metrics():
@@ -430,20 +431,20 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
 
 def check_environment():
     """环境依赖检查"""
-    if SILICONFLOW_API_KEY and not SILICONFLOW_API_KEY.startswith("Your"):
-        print("✅ SiliconFlow API 密钥已配置")
+    if has_remote_llm_config() and not LLM_API_KEY.startswith("Your"):
+        print("✅ 远程 LLM API 密钥已配置")
         try:
-            result = call_siliconflow_api("你好，请回复'连接成功'", temperature=0.1, max_tokens=50)
+            result = call_remote_llm_api("你好，请回复'连接成功'", temperature=0.1, max_tokens=50)
             if isinstance(result, str) and ("连接成功" in result or "你好" in result):
-                print("✅ SiliconFlow API 连接测试成功")
+                print("✅ 远程 LLM API 连接测试成功")
             else:
-                print("⚠️ SiliconFlow API 响应异常，但继续运行")
+                print("⚠️ 远程 LLM API 响应异常，但继续运行")
             return True
         except Exception as e:
-            print(f"⚠️ SiliconFlow API 测试失败: {e}")
+            print(f"⚠️ 远程 LLM API 测试失败: {e}")
             return True
     else:
-        print("⚠️ 未配置 SiliconFlow API 密钥，将尝试使用本地 Ollama")
+        print("⚠️ 未完整配置远程 LLM API，将尝试使用本地 Ollama")
         try:
             import requests
             resp = requests.get("http://localhost:11434/api/tags", timeout=3)
@@ -453,7 +454,7 @@ def check_environment():
         except Exception:
             pass
         print("❌ 未找到任何可用的 LLM 后端")
-        print("   请在 .env 中配置 SILICONFLOW_API_KEY 或启动 Ollama 服务")
+        print("   请在 .env 中配置 LLM_API_KEY / LLM_API_URL / LLM_MODEL_NAME，或启动 Ollama 服务")
         return False
 
 

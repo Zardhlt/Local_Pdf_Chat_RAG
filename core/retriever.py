@@ -8,7 +8,7 @@
 """
 
 import logging
-from config import HYBRID_ALPHA, RETRIEVAL_TOP_K, RERANK_TOP_K, MAX_RETRIEVAL_ITERATIONS
+from config import HYBRID_ALPHA, RETRIEVAL_TOP_K, RERANK_TOP_K, MAX_RETRIEVAL_ITERATIONS, RERANK_METHOD
 from core.vector_store import vector_store
 from core.bm25_index import bm25_manager
 from core.embeddings import encode_query
@@ -76,7 +76,7 @@ def hybrid_merge(semantic_results, bm25_results, alpha=None):
     return sorted(merged_dict.items(), key=lambda x: x[1]['score'], reverse=True)
 
 
-def recursive_retrieval(initial_query, max_iterations=None, enable_web_search=False, model_choice="siliconflow"):
+def recursive_retrieval(initial_query, max_iterations=None, enable_web_search=False, model_choice="api"):
     """
     递归检索与查询优化
 
@@ -121,10 +121,14 @@ def recursive_retrieval(initial_query, max_iterations=None, enable_web_search=Fa
             meta_iter.append(data['metadata'])
 
         if docs_iter:
-            try:
-                reranked = rerank_results(query, docs_iter, ids_iter, meta_iter, top_k=RERANK_TOP_K)
-            except Exception as e:
-                logging.error(f"重排序失败: {str(e)}")
+            if RERANK_METHOD == "cross_encoder" or RERANK_METHOD == "llm":
+                try:
+                    reranked = rerank_results(query, docs_iter, ids_iter, meta_iter, top_k=RERANK_TOP_K)
+                except Exception as e:
+                    logging.error(f"重排序失败: {str(e)}")
+                    reranked = [(did, {'content': d, 'metadata': m, 'score': 1.0})
+                                for did, d, m in zip(ids_iter, docs_iter, meta_iter)]
+            else:
                 reranked = [(did, {'content': d, 'metadata': m, 'score': 1.0})
                             for did, d, m in zip(ids_iter, docs_iter, meta_iter)]
         else:

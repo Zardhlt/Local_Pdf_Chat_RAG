@@ -4,6 +4,7 @@ rag_env/
 __pycache__/
 *.pyc
 *.pyo
+.codex_tmp_pycache/
 
 # 模型缓存
 .cache/

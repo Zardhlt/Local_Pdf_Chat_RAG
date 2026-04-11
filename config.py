@@ -26,8 +26,10 @@ load_dotenv(dotenv_path)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 第二步：API 配置
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SERPAPI_KEY = os.getenv("SERPAPI_KEY")
-SEARCH_ENGINE = "google"
+WEB_SEARCH_PROVIDER = os.getenv("WEB_SEARCH_PROVIDER", "serpapi").lower()
+WEB_SEARCH_API_KEY = os.getenv("WEB_SEARCH_API_KEY")
+WEB_SEARCH_API_URL = os.getenv("WEB_SEARCH_API_URL", "")
+WEB_SEARCH_ENGINE = os.getenv("WEB_SEARCH_ENGINE", "google")
 
 LLM_PROVIDER_NAME = os.getenv("LLM_PROVIDER_NAME", "Custom API")
 LLM_API_KEY = os.getenv("LLM_API_KEY")

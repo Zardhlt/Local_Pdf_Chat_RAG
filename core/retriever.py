@@ -13,7 +13,7 @@ from core.vector_store import vector_store
 from core.bm25_index import bm25_manager
 from core.embeddings import encode_query
 from core.reranker import rerank_results
-from features.web_search import check_serpapi_key, search_web
+from features.web_search import check_web_search_config, search_web
 
 
 def hybrid_merge(semantic_results, bm25_results, alpha=None):
@@ -96,7 +96,7 @@ def recursive_retrieval(initial_query, max_iterations=None, enable_web_search=Fa
 
         # 网络搜索补充
         web_texts = []
-        if enable_web_search and check_serpapi_key():
+        if enable_web_search and check_web_search_config():
             try:
                 for res in search_web(query):
                     web_texts.append(f"标题：{res.get('title', '')}\n摘要：{res.get('snippet', '')}")

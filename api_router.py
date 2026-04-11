@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from config import has_remote_llm_config
 from core.generator import query_answer
 from core.vector_store import vector_store
-from features.web_search import check_serpapi_key
+from features.web_search import check_web_search_config
 from utils.network import is_port_available
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -132,7 +132,7 @@ async def check_status():
     return {
         "status": "healthy",
         "api_configured": has_remote_llm_config(),
-        "serpapi_configured": check_serpapi_key(),
+        "web_search_configured": check_web_search_config(),
         "vector_store_ready": vector_store.is_ready,
         "total_chunks": vector_store.total_chunks,
         "version": "2.0.0"

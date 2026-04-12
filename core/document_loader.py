@@ -148,6 +148,8 @@ def _load_pdf_with_pymupdf(path: Path, doc_id: str, file_hash: str) -> LoadedDoc
 
         page_count = pdf.page_count
 
+    elements = _normalize_elements(elements)
+
     return LoadedDocument(
         doc_id=doc_id,
         source=path.name,
@@ -185,6 +187,7 @@ def _load_pdf_with_pdfminer(path: Path, doc_id: str, file_hash: str) -> LoadedDo
                 metadata={"fallback": True},
             )
         )
+    elements = _normalize_elements(elements)
 
     return LoadedDocument(
         doc_id=doc_id,
@@ -203,6 +206,7 @@ def _load_plain_text(path: Path, doc_id: str, file_hash: str) -> LoadedDocument:
     elements = [
         DocumentElement(text=text, element_type="markdown" if path.suffix.lower() == ".md" else "text", source=path.name)
     ] if text else []
+    elements = _normalize_elements(elements)
 
     return LoadedDocument(
         doc_id=doc_id,
@@ -236,6 +240,21 @@ def _load_docx(path: Path, doc_id: str, file_hash: str) -> LoadedDocument:
             )
         )
 
+    for table_no, table in enumerate(doc.tables):
+        table_text = _table_to_markdown(table.rows)
+        if not table_text:
+            continue
+        elements.append(
+            DocumentElement(
+                text=table_text,
+                element_type="docx_table",
+                source=path.name,
+                metadata={"table_no": table_no, "rows": len(table.rows), "columns": len(table.columns)},
+            )
+        )
+
+    elements = _normalize_elements(elements)
+
     return LoadedDocument(
         doc_id=doc_id,
         source=path.name,
@@ -256,8 +275,10 @@ def _load_excel(path: Path, doc_id: str, file_hash: str) -> LoadedDocument:
     elements: list[DocumentElement] = []
     xl = pd.ExcelFile(path)
     for sheet_no, sheet_name in enumerate(xl.sheet_names):
-        df = xl.parse(sheet_name)
-        text = _clean_text(f"工作表: {sheet_name}\n{df.to_string(index=False)}")
+        df = xl.parse(sheet_name).dropna(how="all").dropna(axis=1, how="all")
+        if df.empty:
+            continue
+        text = _clean_text(f"工作表: {sheet_name}\n{_dataframe_to_markdown(df)}")
         if not text:
             continue
         elements.append(
@@ -268,6 +289,8 @@ def _load_excel(path: Path, doc_id: str, file_hash: str) -> LoadedDocument:
                 metadata={"sheet_no": sheet_no, "sheet_name": sheet_name, "rows": len(df), "columns": len(df.columns)},
             )
         )
+
+    elements = _normalize_elements(elements)
 
     return LoadedDocument(
         doc_id=doc_id,
@@ -290,6 +313,20 @@ def _load_pptx(path: Path, doc_id: str, file_hash: str) -> LoadedDocument:
     elements: list[DocumentElement] = []
     for slide_no, slide in enumerate(prs.slides, start=1):
         for shape_no, shape in enumerate(slide.shapes):
+            if getattr(shape, "has_table", False):
+                table_text = _table_to_markdown(shape.table.rows)
+                if table_text:
+                    elements.append(
+                        DocumentElement(
+                            text=table_text,
+                            element_type="pptx_table",
+                            source=path.name,
+                            page=slide_no,
+                            metadata={"slide_no": slide_no, "shape_no": shape_no},
+                        )
+                    )
+                continue
+
             if not hasattr(shape, "text"):
                 continue
             text = _clean_text(shape.text)
@@ -304,6 +341,8 @@ def _load_pptx(path: Path, doc_id: str, file_hash: str) -> LoadedDocument:
                     metadata={"slide_no": slide_no, "shape_no": shape_no},
                 )
             )
+
+    elements = _normalize_elements(elements)
 
     return LoadedDocument(
         doc_id=doc_id,
@@ -336,6 +375,84 @@ def _clean_text(text: str) -> str:
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+def _normalize_elements(elements: list[DocumentElement]) -> list[DocumentElement]:
+    """
+    统一清洗所有解析器产出的元素。
+
+    这里故意只做保守规则：清理空白、过滤空元素、去掉完全重复文本。真正复杂的
+    页眉页脚识别/OCR 修复可以后续单独做成 normalizer 模块。
+    """
+    normalized: list[DocumentElement] = []
+    seen_texts: set[str] = set()
+
+    for element_no, element in enumerate(elements):
+        text = _clean_text(element.text)
+        if not text:
+            continue
+
+        dedupe_key = re.sub(r"\s+", " ", text).strip()
+        if dedupe_key in seen_texts:
+            continue
+        seen_texts.add(dedupe_key)
+
+        element.text = text
+        element.metadata.setdefault("element_no", element_no)
+        if element.element_type.endswith("_paragraph") and _looks_like_heading(text):
+            element.metadata.setdefault("is_heading", True)
+        normalized.append(element)
+
+    return normalized
+
+
+def _looks_like_heading(text: str) -> bool:
+    """轻量标题判断：先给后续结构感知分块留下可用信号，不直接改变文本。"""
+    if len(text) > 80:
+        return False
+    return bool(re.match(r"^([一二三四五六七八九十]+[、.．]|第[一二三四五六七八九十0-9]+[章节]|[0-9]+[.、])", text))
+
+
+def _table_to_markdown(rows: Any) -> str:
+    """
+    把 Word/PPT 表格转成 Markdown 风格文本。
+
+    RAG 检索里直接把表格压成无结构长字符串会损失列关系；Markdown 至少能保留
+    行列边界，后续如果要接表格问答，也可以更容易识别。
+    """
+    table_rows: list[list[str]] = []
+    for row in rows:
+        cells = [_clean_text(cell.text) for cell in row.cells]
+        if any(cells):
+            table_rows.append(cells)
+
+    if not table_rows:
+        return ""
+
+    max_columns = max(len(row) for row in table_rows)
+    normalized_rows = [row + [""] * (max_columns - len(row)) for row in table_rows]
+    header = normalized_rows[0]
+    separator = ["---"] * max_columns
+    body = normalized_rows[1:]
+    lines = [_markdown_row(header), _markdown_row(separator)]
+    lines.extend(_markdown_row(row) for row in body)
+    return "\n".join(lines)
+
+
+def _dataframe_to_markdown(df: Any) -> str:
+    """把 DataFrame 转成简单 Markdown 表格，避免额外依赖 pandas 的 tabulate 可选包。"""
+    header = [_clean_text(str(column)) for column in df.columns]
+    body = [
+        [_clean_text("" if value != value else str(value)) for value in row]
+        for row in df.to_numpy().tolist()
+    ]
+    lines = [_markdown_row(header), _markdown_row(["---"] * len(header))]
+    lines.extend(_markdown_row(row) for row in body)
+    return "\n".join(lines)
+
+
+def _markdown_row(row: list[str]) -> str:
+    return "| " + " | ".join(cell.replace("|", "\\|") for cell in row) + " |"
 
 
 def _failed_document(path: Path, doc_id: str, file_hash: str, file_ext: str, status: str) -> LoadedDocument:

@@ -128,8 +128,21 @@ def _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search):
             source_item['title'] = title
         else:
             source = metadata.get('source', '未知来源')
-            context_parts.append(f"[本地文档: {source}]\n{doc}")
+            page = metadata.get('page')
+            parser = metadata.get('parser')
+            element_type = metadata.get('element_type')
+            source_label = source
+            if page:
+                source_label = f"{source_label} 第{page}页"
+            if element_type:
+                source_label = f"{source_label} / {element_type}"
+            if parser:
+                source_label = f"{source_label} / {parser}"
+            context_parts.append(f"[本地文档: {source_label}]\n{doc}")
             source_item['source'] = source
+            source_item['page'] = page
+            source_item['parser'] = parser
+            source_item['element_type'] = element_type
 
         sources_for_conflict.append(source_item)
 

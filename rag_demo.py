@@ -12,7 +12,6 @@
 """
 
 import os
-import time
 import logging
 import webbrowser
 import gradio as gr
@@ -28,7 +27,7 @@ from config import (
 )
 
 # 导入核心模块
-from core.document_loader import extract_text
+from core.document_loader import load_document
 from core.text_splitter import split_text
 from core.embeddings import encode_texts
 from core.vector_store import vector_store
@@ -64,19 +63,41 @@ def process_multiple_files(files, progress=gr.Progress()):
                 file_name = os.path.basename(file.name)
                 progress((idx - 1) / total_files, desc=f"处理文件 {idx}/{total_files}: {file_name}")
 
-                text = extract_text(file.name)
-                if not text:
+                loaded_doc = load_document(file.name)
+                if not loaded_doc.elements:
                     raise ValueError("文档内容为空或无法提取文本")
 
-                chunks = split_text(text)
-                doc_id = f"doc_{int(time.time())}_{idx}"
-                metadatas = [{"source": file_name, "doc_id": doc_id} for _ in chunks]
-                chunk_ids = [f"{doc_id}_chunk_{i}" for i in range(len(chunks))]
+                # 从这里开始，索引不再只知道“来自哪个文件”，还会知道页码、元素类型、
+                # 解析器和文件 hash。后续做引用溯源、去重和结构感知分块都会用到这些字段。
+                doc_id = loaded_doc.doc_id
+                ingest_id = f"{doc_id}_{idx}"
+                chunks, metadatas, chunk_ids = [], [], []
+                for element_idx, element in enumerate(loaded_doc.elements):
+                    element_chunks = split_text(element.text)
+                    for chunk_idx, chunk in enumerate(element_chunks):
+                        metadata = {
+                            "source": loaded_doc.source or file_name,
+                            "doc_id": doc_id,
+                            "ingest_id": ingest_id,
+                            "file_hash": loaded_doc.file_hash,
+                            "parser": loaded_doc.parser,
+                            "file_ext": loaded_doc.metadata.get("file_ext"),
+                            "page": element.page,
+                            "bbox": element.bbox,
+                            "element_type": element.element_type,
+                            "element_index": element_idx,
+                            "element_metadata": element.metadata,
+                        }
+                        chunks.append(chunk)
+                        metadatas.append(metadata)
+                        chunk_ids.append(f"{ingest_id}_element_{element_idx}_chunk_{chunk_idx}")
 
                 all_chunks.extend(chunks)
                 all_metadatas.extend(metadatas)
                 all_ids.extend(chunk_ids)
-                processed_results.append(f"✅ {file_name}: 成功处理 {len(chunks)} 个文本块")
+                processed_results.append(
+                    f"✅ {file_name}: 使用 {loaded_doc.parser} 解析出 {len(loaded_doc.elements)} 个元素，生成 {len(chunks)} 个文本块"
+                )
 
             except Exception as e:
                 logging.error(f"处理文件 {file_name} 时出错: {str(e)}")
@@ -126,6 +147,9 @@ def get_document_chunks(progress=gr.Progress()):
             chunk_data = {
                 "row_id": idx, "chunk_id": chunk_id,
                 "source": meta.get("source", "未知来源"), "content": content,
+                "page": meta.get("page"),
+                "parser": meta.get("parser", ""),
+                "element_type": meta.get("element_type", ""),
                 "preview": content[:200] + "..." if len(content) > 200 else content,
                 "char_count": len(content),
                 "token_count": len(list(jieba.cut(content)))
@@ -153,6 +177,9 @@ def show_chunk_details(evt: gr.SelectData):
             return "未找到对应的分块数据"
         return f"""[来源] {selected['source']}
 [ID] {selected['chunk_id']}
+[页码] {selected.get('page') or '无'}
+[解析器] {selected.get('parser') or '未知'}
+[元素类型] {selected.get('element_type') or '未知'}
 [字符数] {selected['char_count']}
 [分词数] {selected['token_count']}
 ----------------------------
